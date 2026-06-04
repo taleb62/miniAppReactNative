@@ -1,153 +1,208 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  Image,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  StyleSheet,
-  Linking,
-  Dimensions,
-  StatusBar,
+  View, Text, Image, ScrollView, StyleSheet,
+  Linking, Dimensions, Animated, StatusBar,
 } from 'react-native';
+import AnimatedCard from '../components/AnimatedCard';
+import PressableScale from '../components/PressableScale';
 
 const { width } = Dimensions.get('window');
 
+function AnimatedSection({ children, delay = 0 }) {
+  const translateY = useRef(new Animated.Value(40)).current;
+  const opacity    = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity,    { toValue: 1, duration: 450, delay, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: 0, tension: 60, friction: 11, delay, useNativeDriver: true }),
+    ]).start();
+  }, []);
+  return (
+    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
+      {children}
+    </Animated.View>
+  );
+}
+
+function IngredientRow({ ingredient, measure, index }) {
+  const slideX  = useRef(new Animated.Value(30)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const delay = Math.min(index * 50, 600);
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 300, delay, useNativeDriver: true }),
+      Animated.spring(slideX,  { toValue: 0, tension: 70, friction: 10, delay, useNativeDriver: true }),
+    ]).start();
+  }, []);
+  return (
+    <Animated.View style={[styles.ingredientRow, { opacity, transform: [{ translateX: slideX }] }]}>
+      <View style={styles.ingredientDot} />
+      <Text style={styles.ingredientName}>{ingredient}</Text>
+      {measure ? <Text style={styles.ingredientMeasure}>{measure}</Text> : null}
+    </Animated.View>
+  );
+}
+
 export default function MealDetailScreen({ route, navigation }) {
   const { mealId } = route.params;
-  const [meal, setMeal] = useState(null);
+  const [meal,    setMeal]    = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchMealDetail();
-  }, [mealId]);
+  const imgOpac    = useRef(new Animated.Value(0)).current;
+  const imgScale   = useRef(new Animated.Value(1.08)).current;
+  const backSlideX = useRef(new Animated.Value(-60)).current;
+  const backOpac   = useRef(new Animated.Value(0)).current;
+  const titleY     = useRef(new Animated.Value(30)).current;
+  const titleOpac  = useRef(new Animated.Value(0)).current;
 
-  const fetchMealDetail = async () => {
+  useEffect(() => { fetchMeal(); }, []);
+
+  const fetchMeal = async () => {
     try {
-      const res = await fetch(
-        `https://www.themealdb.com/api/json/v1/1/lookup.php?i=${mealId}`
-      );
+      const res  = await fetch(`https://www.themealdb.com/api/json/v1/1/lookup.php?i=${mealId}`);
       const data = await res.json();
-      if (data.meals?.length > 0) setMeal(data.meals[0]);
-    } catch (e) {
-      console.error(e);
+      if (data.meals?.[0]) {
+        setMeal(data.meals[0]);
+        // Trigger entrance animations after data loads
+        setTimeout(runEntranceAnims, 50);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const getIngredients = (meal) => {
-    const ingredients = [];
-    for (let i = 1; i <= 20; i++) {
-      const ingredient = meal[`strIngredient${i}`];
-      const measure = meal[`strMeasure${i}`];
-      if (ingredient && ingredient.trim()) {
-        ingredients.push({ ingredient: ingredient.trim(), measure: (measure || '').trim() });
-      }
-    }
-    return ingredients;
+  const runEntranceAnims = () => {
+    // Image fade + slight dezoom
+    Animated.parallel([
+      Animated.timing(imgOpac,  { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(imgScale, { toValue: 1, duration: 600, useNativeDriver: true }),
+    ]).start();
+    // Back button slides in
+    Animated.parallel([
+      Animated.spring(backSlideX, { toValue: 0, tension: 70, friction: 10, delay: 150, useNativeDriver: true }),
+      Animated.timing(backOpac,   { toValue: 1, duration: 300, delay: 150, useNativeDriver: true }),
+    ]).start();
+    // Title slides up
+    Animated.parallel([
+      Animated.spring(titleY,    { toValue: 0, tension: 65, friction: 10, delay: 250, useNativeDriver: true }),
+      Animated.timing(titleOpac, { toValue: 1, duration: 350, delay: 250, useNativeDriver: true }),
+    ]).start();
   };
 
-  const getInstructions = (instructions) => {
+  const getIngredients = (meal) => {
+    const list = [];
+    for (let i = 1; i <= 20; i++) {
+      const ing = meal[`strIngredient${i}`];
+      const mea = meal[`strMeasure${i}`];
+      if (ing?.trim()) list.push({ ingredient: ing.trim(), measure: (mea || '').trim() });
+    }
+    return list;
+  };
+
+  const getSteps = (instructions) => {
     if (!instructions) return [];
-    return instructions
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    return instructions.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF6B35" />
-        <Text style={styles.loadingText}>Loading recipe...</Text>
+      <View style={styles.loadingScreen}>
+        <StatusBar barStyle="light-content" />
+        <Animated.Text style={styles.loadingEmoji}>🍳</Animated.Text>
+        <Text style={styles.loadingText}>Préparation de la recette...</Text>
       </View>
     );
   }
 
   if (!meal) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Meal not found.</Text>
-        <TouchableOpacity style={styles.backButtonFallback} onPress={() => navigation.goBack()}>
-          <Text style={styles.backButtonText}>Go back</Text>
-        </TouchableOpacity>
+      <View style={styles.loadingScreen}>
+        <Text style={styles.loadingText}>Recette introuvable</Text>
+        <PressableScale onPress={() => navigation.goBack()}>
+          <View style={styles.fallbackBack}><Text style={styles.fallbackBackText}>← Retour</Text></View>
+        </PressableScale>
       </View>
     );
   }
 
   const ingredients = getIngredients(meal);
-  const instructions = getInstructions(meal.strInstructions);
+  const steps       = getSteps(meal.strInstructions);
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: meal.strMealThumb }} style={styles.heroImage} />
-          <View style={styles.imageOverlay} />
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backArrow}>←</Text>
-            <Text style={styles.backButtonText}>Go back</Text>
-          </TouchableOpacity>
-          <View style={styles.mealTitleContainer}>
-            <Text style={styles.mealTitle}>{meal.strMeal}</Text>
-            <View style={styles.tagRow}>
-              {meal.strCategory ? (
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>{meal.strCategory}</Text>
-                </View>
-              ) : null}
-              {meal.strArea ? (
-                <View style={[styles.tag, styles.tagArea]}>
-                  <Text style={styles.tagText}>{meal.strArea}</Text>
-                </View>
-              ) : null}
+      <ScrollView showsVerticalScrollIndicator={false} bounces>
+
+        {/* ── Hero image ── */}
+        <View style={styles.heroContainer}>
+          <Animated.Image
+            source={{ uri: meal.strMealThumb }}
+            style={[styles.heroImage, { opacity: imgOpac, transform: [{ scale: imgScale }] }]}
+          />
+          <View style={styles.heroOverlay} />
+
+          {/* Back button */}
+          <Animated.View style={[styles.backBtn, { opacity: backOpac, transform: [{ translateX: backSlideX }] }]}>
+            <PressableScale onPress={() => navigation.goBack()} scaleTo={0.9}>
+              <View style={styles.backBtnInner}>
+                <Text style={styles.backArrow}>←</Text>
+                <Text style={styles.backText}>Retour</Text>
+              </View>
+            </PressableScale>
+          </Animated.View>
+
+          {/* Title + tags */}
+          <Animated.View style={[styles.heroBottom, { opacity: titleOpac, transform: [{ translateY: titleY }] }]}>
+            <Text style={styles.heroTitle}>{meal.strMeal}</Text>
+            <View style={styles.tagsRow}>
+              {meal.strCategory && <View style={styles.tag}><Text style={styles.tagText}>{meal.strCategory}</Text></View>}
+              {meal.strArea     && <View style={[styles.tag, styles.tagGreen]}><Text style={styles.tagText}>🌍 {meal.strArea}</Text></View>}
             </View>
-          </View>
+          </Animated.View>
         </View>
 
+        {/* ── Content ── */}
         <View style={styles.content}>
-          {meal.strYoutube ? (
-            <TouchableOpacity
-              style={styles.youtubeButton}
-              onPress={() => Linking.openURL(meal.strYoutube)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.youtubeIcon}>▶</Text>
-              <Text style={styles.youtubeButtonText}>Watch on YouTube</Text>
-            </TouchableOpacity>
-          ) : null}
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Ingredients</Text>
-            <View style={styles.ingredientsGrid}>
-              {ingredients.map((item, index) => (
-                <View key={index} style={styles.ingredientItem}>
-                  <View style={styles.ingredientDot} />
-                  <View style={styles.ingredientInfo}>
-                    <Text style={styles.ingredientName}>{item.ingredient}</Text>
-                    {item.measure ? (
-                      <Text style={styles.ingredientMeasure}>{item.measure}</Text>
-                    ) : null}
-                  </View>
+          {/* YouTube */}
+          {meal.strYoutube && (
+            <AnimatedSection delay={0}>
+              <PressableScale onPress={() => Linking.openURL(meal.strYoutube)} scaleTo={0.97}>
+                <View style={styles.youtubeBtn}>
+                  <Text style={styles.youtubeBtnText}>▶  Voir la recette sur YouTube</Text>
                 </View>
+              </PressableScale>
+            </AnimatedSection>
+          )}
+
+          {/* Ingrédients */}
+          <AnimatedSection delay={100}>
+            <Text style={styles.sectionTitle}>🛒  Ingrédients</Text>
+            <View style={styles.ingredientsCard}>
+              {ingredients.map((item, i) => (
+                <IngredientRow
+                  key={i}
+                  ingredient={item.ingredient}
+                  measure={item.measure}
+                  index={i}
+                />
               ))}
             </View>
-          </View>
+          </AnimatedSection>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Instructions</Text>
-            {instructions.map((step, index) => (
-              <View key={index} style={styles.instructionStep}>
+          {/* Instructions */}
+          <AnimatedSection delay={200}>
+            <Text style={styles.sectionTitle}>📋  Instructions</Text>
+            {steps.map((step, i) => (
+              <AnimatedCard key={i} index={i} style={styles.stepCard}>
                 <View style={styles.stepNumber}>
-                  <Text style={styles.stepNumberText}>{index + 1}</Text>
+                  <Text style={styles.stepNumberText}>{i + 1}</Text>
                 </View>
                 <Text style={styles.stepText}>{step}</Text>
-              </View>
+              </AnimatedCard>
             ))}
-          </View>
+          </AnimatedSection>
+
         </View>
       </ScrollView>
     </View>
@@ -155,203 +210,92 @@ export default function MealDetailScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
+  container:    { flex: 1, backgroundColor: '#F5F5F5' },
+  loadingScreen: {
+    flex: 1, backgroundColor: '#FF6B35',
+    alignItems: 'center', justifyContent: 'center', gap: 14,
   },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8F9FA',
-    gap: 12,
+  loadingEmoji: { fontSize: 50 },
+  loadingText:  { fontSize: 16, color: '#fff', fontWeight: '600' },
+  fallbackBack: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 20, paddingHorizontal: 20, paddingVertical: 10,
   },
-  loadingText: {
-    fontSize: 15,
-    color: '#888',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  backButtonFallback: {
-    marginTop: 8,
-    backgroundColor: '#FF6B35',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  imageContainer: {
-    position: 'relative',
-    height: 300,
-  },
-  heroImage: {
-    width,
-    height: 300,
-  },
-  imageOverlay: {
+  fallbackBackText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  // Hero
+  heroContainer: { height: 320, position: 'relative' },
+  heroImage:     { width, height: 320, resizeMode: 'cover' },
+  heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.38)',
   },
-  backButton: {
-    position: 'absolute',
-    top: 50,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 6,
+  backBtn: { position: 'absolute', top: 52, left: 16 },
+  backBtnInner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 22, paddingHorizontal: 16, paddingVertical: 9,
   },
-  backArrow: {
-    fontSize: 18,
-    color: '#fff',
-    lineHeight: 20,
+  backArrow: { fontSize: 18, color: '#fff' },
+  backText:  { fontSize: 14, color: '#fff', fontWeight: '600' },
+  heroBottom: { position: 'absolute', bottom: 20, left: 16, right: 16 },
+  heroTitle:  {
+    fontSize: 26, fontWeight: '900', color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+    marginBottom: 10,
   },
-  backButtonText: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  mealTitleContainer: {
-    position: 'absolute',
-    bottom: 20,
-    left: 16,
-    right: 16,
-  },
-  mealTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#fff',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-    marginBottom: 8,
-  },
-  tagRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  tag: {
-    backgroundColor: '#FF6B35',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  tagArea: {
-    backgroundColor: '#4CAF50',
-  },
-  tagText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  content: {
-    padding: 16,
-  },
-  youtubeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  tagsRow:  { flexDirection: 'row', gap: 8 },
+  tag:      { backgroundColor: '#FF6B35', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
+  tagGreen: { backgroundColor: '#388E3C' },
+  tagText:  { color: '#fff', fontSize: 12, fontWeight: '700' },
+
+  // Content
+  content: { padding: 18 },
+  youtubeBtn: {
     backgroundColor: '#FF0000',
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginBottom: 20,
-    gap: 10,
-    elevation: 3,
-    shadowColor: '#FF0000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    borderRadius: 16, paddingVertical: 16,
+    alignItems: 'center', marginBottom: 22,
+    elevation: 5,
+    shadowColor: '#FF0000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 10,
   },
-  youtubeIcon: {
-    fontSize: 18,
-    color: '#fff',
-  },
-  youtubeButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  section: {
+  youtubeBtnText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginBottom: 14, marginTop: 6 },
+
+  ingredientsCard: {
+    backgroundColor: '#fff', borderRadius: 18,
+    padding: 6, elevation: 3,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08, shadowRadius: 8,
     marginBottom: 24,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#222',
-    marginBottom: 14,
-  },
-  ingredientsGrid: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-  },
-  ingredientItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-    gap: 10,
+  ingredientRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 11,
+    borderBottomWidth: 1, borderBottomColor: '#F4F4F4', gap: 12,
   },
   ingredientDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FF6B35',
-    flexShrink: 0,
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#FF6B35', flexShrink: 0,
   },
-  ingredientInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  ingredientName: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-    flex: 1,
-  },
-  ingredientMeasure: {
-    fontSize: 13,
-    color: '#FF6B35',
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  instructionStep: {
-    flexDirection: 'row',
-    marginBottom: 14,
-    gap: 12,
-    alignItems: 'flex-start',
+  ingredientName:    { flex: 1, fontSize: 14, color: '#333', fontWeight: '500' },
+  ingredientMeasure: { fontSize: 13, color: '#FF6B35', fontWeight: '700' },
+
+  stepCard: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    gap: 14, marginBottom: 14,
   },
   stepNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 34, height: 34, borderRadius: 17,
     backgroundColor: '#FF6B35',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    marginTop: 2,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0, marginTop: 2,
+    elevation: 3,
+    shadowColor: '#FF6B35', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 4,
   },
-  stepNumberText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  stepText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#444',
-    lineHeight: 22,
-  },
+  stepNumberText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  stepText: { flex: 1, fontSize: 14, color: '#555', lineHeight: 22 },
 });

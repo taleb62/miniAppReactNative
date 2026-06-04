@@ -4,6 +4,7 @@
     "slug": "MealApp",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
+    "scheme": "mealapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -26,7 +27,9 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      "expo-secure-store",
+      "expo-web-browser"
     ]
   }
 }
